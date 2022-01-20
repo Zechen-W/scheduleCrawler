@@ -14,28 +14,39 @@ class WzcSpider(scrapy.Spider):
             yield scrapy.Request(url=url, callback=self.parse)
 
     def parse(self, response):
-        # sections = response.xpath('//*[@id="content"]/section[1]/section/div/div/div[2]/div[2]/div').getall()
-        # sections.pop(0)
-        # sections.pop(-1)
-        date = '2.' + re.findall(r'february-(\d+)', response.url)[0]
-        for i in range(
-                len(response.xpath('//*[@id="content"]/section[1]/section/div/div/div[2]/div[2]/div').getall()) // 2):
-            sec_xpath = f'//*[@id="content"]/section[1]/section/div/div/div[2]/div[2]/div[{2 * i}]'
-            # sec_xpath = f'//*[@id="content"]/section[1]/section/div/div/div[2]/div[2]/div[2     ]/div[2]/div[1]/div[1]'
-            # section = re.sub(r'\s+', '', section)
-            # section = re.sub(r'<.+?>', '', section)
-            event = response.xpath(sec_xpath + '/div[1]').get()
-            n_games = len(response.xpath(sec_xpath + '/div[2]/div').getall())
-            for j in range(1, 1 + n_games):
-                time = response.xpath(sec_xpath + f'/div[2]/div[{j}]/div[1]').get()
-                next_time = response.xpath(sec_xpath + f'/div[2]/div[{min(j + 1, n_games)}]/div[1]').get()
-                game = response.xpath(sec_xpath + f'/div[2]/div[{j}]/div[2]').get()
-                if self.extract_info(next_time) != '小决赛后' and not re.findall(r'\d', self.extract_info(next_time)):
-                    game += self.extract_info(response.xpath(sec_xpath + f'/div[2]/div[{min(j + 1, n_games)}]').get())
-                yield {'date': date,
-                       'event': self.extract_info(event),
-                       'time': self.extract_info(time),
-                       'game': self.extract_info(game)}
+        date = '2.' + response.url[62:-1]
+        base = '//*[@id="content"]/section/div/div/section/div/div/div[2]/div[2]/div'
+        n_event = (len(response.xpath(
+            '//*[@id="content"]/section/div/div/section/div/div/div[2]/div[2]/div').getall()) - 2) // 2
+
+        for i_event in range(n_event):
+            base_event = f'//*[@id="content"]/section/div/div/section/div/div/div[2]/div[2]/div[{i_event * 2 + 2}]'
+            event = response.xpath(f'{base_event}/div[1]/div/div[2]/label').re(r'<label>(.*)</label>')[0]
+
+            base_line = f'{base_event}/div[2]/div'
+            n_line = len(response.xpath(base_line).getall())
+            items = []
+            for i_line in range(n_line):
+                base_line = f'{base_event}/div[2]/div[{i_line + 1}]'
+                n_col = len(response.xpath(f'{base_line}/div').getall())
+                if n_col == 2:
+                    time = response.xpath(f'{base_line}/div[1]/label').re(r'<label>(.*)</label>')
+                    time = ''.join(time)
+                    game = response.xpath(f'{base_line}/div[2]/label').re(r'<label>(.*)</label>')
+                    game = ''.join(game)
+                    items.append({'date': date,
+                                  'event': event,
+                                  'time': time,
+                                  'game': game})
+
+                elif n_col == 3:
+                    # raise Exception('this is n_col==3')
+                    ctry1 = response.xpath(f'{base_line}/div[1]/div[2]/span').re(r'<span>(.*)</span>')[0].strip()
+                    ctry2 = response.xpath(f'{base_line}/div[3]/div[1]/span').re(r'<span>(.*)</span>')[0].strip()
+                    items[-1]['game'] = items[-1]['game'] + f'; {ctry1} VS {ctry2}'
+
+            for item in items:
+                yield item
 
     def extract_info(self, text):
         text = re.sub(r'\s+', '', text)
